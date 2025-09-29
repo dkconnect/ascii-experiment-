@@ -18,10 +18,10 @@
         #controls {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 15px; 
             align-items: center;
         }
-        #fileInputContainer {
+        #fileInputContainer, #buttonsContainer, #thresholdContainer {
             display: flex;
             gap: 10px;
             align-items: center;
@@ -33,10 +33,6 @@
             color: #fff;
             border-radius: 5px;
             cursor: pointer;
-        }
-        #buttonsContainer {
-            display: flex;
-            gap: 10px;
         }
         .convert-btn, #downloadBtn {
             padding: 10px;
@@ -75,14 +71,21 @@
 
     <div id="controls">
         <div id="fileInputContainer">
-            <label for="imageInput">Upload Imag</label>
+            <label for="imageInput">Upload Image</label>
             <input type="file" id="imageInput" accept="image/*">
         </div>
+        
+        <div id="thresholdContainer">
+            <label for="contrastSlider">Blackout Threshold (High Contrast Option):</label>
+            <input type="range" id="contrastSlider" min="0" max="100" value="30">
+            <span id="thresholdValue">30</span>
+        </div>
+
         <div id="buttonsContainer">
-            <button id="normalConvertBtn" class="convert-btn" disabled>Normal Conversion</button>
+            <button id="normalConvertBtn" class="convert-btn" disabled>Normal Color</button>
             <button id="highContrastConvertBtn" class="convert-btn" disabled>High Contrast</button>
         </div>
-        <button id="downloadBtn">Download Art </button>
+        <button id="downloadBtn">Download Art</button>
     </div>
 
     <canvas id="hiddenCanvas"></canvas>
@@ -98,23 +101,42 @@
         const downloadBtn = document.getElementById('downloadBtn');
         const normalConvertBtn = document.getElementById('normalConvertBtn');
         const highContrastConvertBtn = document.getElementById('highContrastConvertBtn');
+        const contrastSlider = document.getElementById('contrastSlider');
+        const thresholdValueSpan = document.getElementById('thresholdValue');
         const ctx = hiddenCanvas.getContext('2d');
 
-        const CHAR_SET_NORMAL = "`.-_~:!+<>;=/$@#MW&%B#".split('');
+        const CHAR_SET_NORMAL = "`.-_~:!+<>;=/$@#MW&%B".split('');
         const CHAR_SET_HIGH_CONTRAST = [' ', '.', ':', '-', '+', '*', 'o', 'x', '%', '#', '@'].reverse();
         const MAX_WIDTH = 120;
         let originalImage = null;
+        let currentMode = 'normal'; 
 
         imageInput.addEventListener('change', handleImageUpload);
-        normalConvertBtn.addEventListener('click', () => convertImageToAsciiNormal());
-        highContrastConvertBtn.addEventListener('click', () => convertImageToAsciiHighContrast());
+        normalConvertBtn.addEventListener('click', () => {
+            currentMode = 'normal';
+            convertImageToAsciiNormal();
+        });
+        highContrastConvertBtn.addEventListener('click', () => {
+            currentMode = 'highContrast';
+            convertImageToAsciiHighContrast();
+        });
+        contrastSlider.addEventListener('input', () => {
+            thresholdValueSpan.textContent = contrastSlider.value;
+            
+            if (currentMode === 'highContrast' && originalImage) {
+                convertImageToAsciiHighContrast();
+            }
+        });
         downloadBtn.addEventListener('click', handleDownload);
+   
+        contrastSlider.disabled = true;
 
         function handleImageUpload(event) {
             const file = event.target.files[0];
             if (!file) {
                 normalConvertBtn.disabled = true;
                 highContrastConvertBtn.disabled = true;
+                contrastSlider.disabled = true;
                 originalImage = null;
                 return;
             }
@@ -123,12 +145,18 @@
             reader.onload = function(e) {
                 const img = new Image();
                 img.onload = function() {
-                    originalImage = img; 
-
+                    originalImage = img;
+                    
                     normalConvertBtn.disabled = false;
                     highContrastConvertBtn.disabled = false;
+                    contrastSlider.disabled = false;
 
-                    convertImageToAsciiNormal();
+                   
+                    if (currentMode === 'highContrast') {
+                        convertImageToAsciiHighContrast();
+                    } else {
+                        convertImageToAsciiNormal();
+                    }
                 };
                 img.src = e.target.result;
             };
@@ -138,6 +166,7 @@
         function prepareCanvas() {
             if (!originalImage) return;
 
+         
             const ratio = Math.min(1, MAX_WIDTH / originalImage.width);
             const newWidth = originalImage.width * ratio;
             const newHeight = originalImage.height * ratio * (0.5);
@@ -159,10 +188,14 @@
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
+                    
+                   
                     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                    
                     const charIndex = Math.floor(luminance / 255 * (CHAR_SET_NORMAL.length - 1));
                     const char = CHAR_SET_NORMAL[charIndex];
 
+                 
                     asciiHtml += `<span style="color: rgb(${r},${g},${b});">${char}</span>`;
                 }
                 asciiHtml += '\n';
@@ -176,26 +209,22 @@
             const data = imageData.data;
             let asciiHtml = '';
 
-            const redRegionStart = { x: Math.floor(hiddenCanvas.width * 0.2), y: Math.floor(hiddenCanvas.height * 0.1) };
-            const redRegionEnd = { x: Math.floor(hiddenCanvas.width * 0.8), y: Math.floor(hiddenCanvas.height * 0.4) };
-
+      
+            const blackoutThreshold = parseInt(contrastSlider.value, 10);
+            
             for (let y = 0; y < hiddenCanvas.height; y++) {
                 for (let x = 0; x < hiddenCanvas.width; x++) {
                     const i = (y * hiddenCanvas.width + x) * 4;
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
+                    
                     const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b);
                     
                     const charIndex = Math.floor(luminance / 255 * (CHAR_SET_HIGH_CONTRAST.length - 1));
                     let char = CHAR_SET_HIGH_CONTRAST[charIndex];
-                    let charColor = '#fff';
-
-                    if (x >= redRegionStart.x && x <= redRegionEnd.x &&
-                        y >= redRegionStart.y && y <= redRegionEnd.y &&
-                        luminance > 80) {
-                        charColor = '#f00';
-                    } else if (luminance < 30) {
+                    let charColor = '#fff'; 
+                    if (luminance < blackoutThreshold) {
                         char = ' ';
                     }
 
@@ -206,56 +235,69 @@
             asciiOutputContainer.innerHTML = asciiHtml;
         }
 
+
         function handleDownload() {
-            if (asciiOutputContainer.innerHTML.trim().length > 0) {
-                const asciiCanvas = document.createElement('canvas');
-                const ctxAscii = asciiCanvas.getContext('2d');
-                const style = window.getComputedStyle(asciiOutputContainer);
-
-                const fontSize = parseFloat(style.fontSize);
-                const lineHeight = parseFloat(style.lineHeight) * fontSize;
-                const letterSpacing = parseFloat(style.letterSpacing);
-
-                const lines = asciiOutputContainer.innerText.split('\n');
-                const numLines = lines.length;
-                const maxLineWidth = lines.reduce((max, line) => Math.max(max, line.length), 0);
-                
-                const padding = 10;
-                asciiCanvas.width = maxLineWidth * (fontSize + letterSpacing) + 2 * padding;
-                asciiCanvas.height = numLines * lineHeight + 2 * padding;
-                
-                ctxAscii.fillStyle = '#000';
-                ctxAscii.fillRect(0, 0, asciiCanvas.width, asciiCanvas.height);
-                
-                ctxAscii.font = style.font;
-                ctxAscii.textBaseline = 'top';
-
-                const spans = asciiOutputContainer.querySelectorAll('span');
-                let globalCharIndex = 0;
-                lines.forEach((line, index) => {
-                    const y = index * lineHeight + padding;
-                    let x = padding;
-                    for (let i = 0; i < line.length; i++) {
-                        const char = line[i];
-                        const span = spans[globalCharIndex];
-                        if (span) {
-                            ctxAscii.fillStyle = span.style.color;
-                            ctxAscii.fillText(char, x, y);
-                            x += ctxAscii.measureText(char).width;
-                        }
-                        globalCharIndex++;
-                    }
-                });
-
-                const imageURL = asciiCanvas.toDataURL('image/png');
-                const a = document.createElement('a');
-                a.href = imageURL;
-                a.download = 'ascii_art.png';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(imageURL);
+            const outputText = asciiOutputContainer.innerText;
+            if (outputText.trim().length === 0 || outputText.includes('Upload an image')) {
+                return;
             }
+
+            const asciiCanvas = document.createElement('canvas');
+            const ctxAscii = asciiCanvas.getContext('2d');
+            const style = window.getComputedStyle(asciiOutputContainer);
+
+            
+            const fontFamily = style.fontFamily;
+            const fontSize = parseFloat(style.fontSize);
+            const lineHeight = parseFloat(style.lineHeight) * fontSize;
+            const padding = 10;
+            
+            ctxAscii.font = `${fontSize}px ${fontFamily}`;
+            ctxAscii.textBaseline = 'top';
+
+            const charWidth = ctxAscii.measureText('M').width;
+            
+            const lines = outputText.split('\n').filter(line => line.length > 0);
+            const numLines = lines.length;
+            const maxLineWidth = lines.reduce((max, line) => Math.max(max, line.length), 0);
+            
+            asciiCanvas.width = maxLineWidth * charWidth + 2 * padding;
+            asciiCanvas.height = numLines * lineHeight + 2 * padding;
+            
+
+            ctxAscii.fillStyle = '#000';
+            ctxAscii.fillRect(0, 0, asciiCanvas.width, asciiCanvas.height);
+            ctxAscii.font = `${fontSize}px ${fontFamily}`;
+            ctxAscii.textBaseline = 'top';
+
+            const spans = asciiOutputContainer.querySelectorAll('span');
+            let globalCharIndex = 0;
+            
+            lines.forEach((line, index) => {
+                const y = index * lineHeight + padding;
+                let x = padding;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    const span = spans[globalCharIndex];
+                    
+                    if (span) {
+                        ctxAscii.fillStyle = span.style.color;
+                        ctxAscii.fillText(char, x, y);
+                    }
+                    
+                    x += charWidth;
+                    globalCharIndex++;
+                }
+            });
+
+            const imageURL = asciiCanvas.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = imageURL;
+            a.download = 'ascii_art.png';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }
     </script>
 
